@@ -2,11 +2,10 @@
 set -euo pipefail
 
 # -----------------------------
-# Config (edit these 3 lines)
+# Config (edit these 2 lines)
 # -----------------------------
 POTPOURRI_REPO_URL="https://github.com/Burdantes/potpourri3d.git"
 POTPOURRI_BRANCH="feature/custom-init-path"
-GEOCENTRAL_BRANCH="feature/custom-init-path"
 
 # Optional: set to "0" if you don't want venv created
 CREATE_VENV="${CREATE_VENV:-1}"
@@ -51,33 +50,10 @@ git checkout "$POTPOURRI_BRANCH"
 git pull --ff-only || warn "Could not fast-forward pull; you may have local changes."
 
 # -----------------------------
-# Submodules
+# Submodules (THIS is what pins geometry-central)
 # -----------------------------
 log "Initializing/updating submodules..."
 git submodule update --init --recursive
-
-# -----------------------------
-# Checkout geometry-central branch
-# -----------------------------
-log "Checking out geometry-central branch: $GEOCENTRAL_BRANCH"
-pushd deps/geometry-central >/dev/null
-
-# Try origin first (whatever the submodule remote is)
-git fetch --all --prune
-
-if git show-ref --verify --quiet "refs/remotes/origin/$GEOCENTRAL_BRANCH"; then
-  git checkout "$GEOCENTRAL_BRANCH"
-  git pull --ff-only || warn "Could not fast-forward pull geometry-central; you may have local changes."
-else
-  warn "origin/$GEOCENTRAL_BRANCH not found. Trying fork remote..."
-  if ! git remote | grep -q '^fork$'; then
-    git remote add fork "https://github.com/Burdantes/geometry-central.git"
-  fi
-  git fetch fork --prune
-  git checkout -B "$GEOCENTRAL_BRANCH" "fork/$GEOCENTRAL_BRANCH"
-fi
-
-popd >/dev/null
 
 # -----------------------------
 # Python environment
