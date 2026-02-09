@@ -48,6 +48,58 @@ DenseMatrix<int64_t> edges(DenseMatrix<double> verts, DenseMatrix<int64_t> faces
   return E;
 }
 
+static std::vector<geometrycentral::surface::Halfedge>
+halfedgesFromVertexRoute(geometrycentral::surface::SurfaceMesh& mesh,
+                         const std::vector<geometrycentral::surface::Vertex>& verts) {
+
+  using namespace geometrycentral::surface;
+
+  if (verts.size() < 2) return {};
+
+  std::vector<Halfedge> path;
+  path.reserve(verts.size() - 1);
+
+  for (size_t i = 0; i + 1 < verts.size(); i++) {
+    Vertex a = verts[i];
+    Vertex b = verts[i + 1];
+
+    Halfedge chosenHe;
+    bool found = false;
+
+    for (Halfedge he : a.outgoingHalfedges()) {
+      if (he.twin().vertex() == b) {
+        chosenHe = he;
+        found = true;
+        break;
+      }
+    }
+
+    if (!found) {
+      throw std::runtime_error("Provided vertex route is not edge-adjacent at step " + std::to_string(i));
+    }
+
+    path.push_back(chosenHe);
+  }
+
+  return path;
+}
+
+std::vector<Halfedge> halfedgesFromVertexWaypoints(IntrinsicGeometryInterface& geom,
+                                                   const std::vector<Vertex>& verts) {
+  if (verts.size() < 2) return {};
+
+  std::vector<Halfedge> full;
+  for (size_t i = 0; i + 1 < verts.size(); i++) {
+    Vertex a = verts[i];
+    Vertex b = verts[i + 1];
+    std::vector<Halfedge> seg = shortestEdgePath(geom, a, b);
+    if (seg.empty()) {
+      throw std::runtime_error("Waypoints are disconnected at segment " + std::to_string(i));
+    }
+    full.insert(full.end(), seg.begin(), seg.end());
+  }
+  return full;
+}
 // Wrapper for FMMDistance that constructs an internal mesh and geometry
 class FastMarchingDistanceEigen {
 
@@ -529,7 +581,58 @@ public:
 
     return out;
   }
+    // Generate a point-to-point geodesic by straightening a user-provided vertex route
+    DenseMatrix<double> find_geodesic_path_with_route(std::vector<int64_t> verts,
+                                                      size_t maxIterations = INVALID_IND,
+                                                      double maxRelativeLengthDecrease = 0.) {
 
+      if (verts.size() < 2) {
+        throw std::runtime_error("vertex route must contain at least 2 vertices");
+      }
+
+      // Validate consecutive vertices are not identical (optional; you can also just skip them)
+      for (size_t i = 0; i + 1 < verts.size(); i++) {
+        if (verts[i] == verts[i + 1]) {
+          throw std::runtime_error("vertex route contains consecutive identical vertices at step " + std::to_string(i));
+        }
+      }
+
+      // Convert indices -> Vertex handles on THIS mesh
+      std::vector<Vertex> vRoute;
+      vRoute.reserve(verts.size());
+      for (int64_t vi : verts) {
+        if (vi < 0 || (size_t)vi >= mesh->nVertices()) {
+          throw std::runtime_error("vertex index out of range: " + std::to_string(vi));
+        }
+        vRoute.push_back(mesh->vertex((size_t)vi));
+      }
+
+      // Convert route to a halfedge path (throws if not edge-adjacent)
+      std::vector<Halfedge> routeHalfedges = halfedgesFromVertexWaypoints(*geom, vRoute);
+      if (routeHalfedges.empty()) {
+        throw std::runtime_error("routeHalfedges is empty (unexpected for route length >= 2)");
+      }
+
+      // Reinitialize the flip network to contain this path
+      flipNetwork->reinitializePath({routeHalfedges});
+
+      // Straighten the path to a geodesic
+      flipNetwork->iterativeShorten(maxIterations, maxRelativeLengthDecrease);
+
+      // Extract the path polyline in 3D
+      std::vector<Vector3> path3D = flipNetwork->getPathPolyline3D().front();
+      DenseMatrix<double> out(path3D.size(), 3);
+      for (size_t i = 0; i < path3D.size(); i++) {
+        for (size_t j = 0; j < 3; j++) {
+          out(i, j) = path3D[i][j];
+        }
+      }
+
+      // Be kind, rewind
+      flipNetwork->rewind();
+
+      return out;
+    }
 
   // Generate a point-to-point geodesic loop by straightening a poly-geodesic path
   DenseMatrix<double> find_geodesic_loop(std::vector<int64_t> verts, size_t maxIterations = INVALID_IND,
@@ -715,13 +818,17 @@ void bind_mesh(py::module& m) {
              py::arg("curves") = std::vector<std::vector<int64_t>>(),
              py::arg("level_set_constraint") = "ZeroSet");
 
-  py::class_<EdgeFlipGeodesicsManager>(m, "EdgeFlipGeodesicsManager")
+    py::class_<EdgeFlipGeodesicsManager>(m, "EdgeFlipGeodesicsManager")
         .def(py::init<DenseMatrix<double>, DenseMatrix<int64_t>>())
-        .def("find_geodesic_path", &EdgeFlipGeodesicsManager::find_geodesic_path, py::arg("source_vert"), py::arg("target_vert"), py::arg("maxIterations"), py::arg("maxRelativeLengthDecrease"))
-        .def("find_geodesic_path_poly", &EdgeFlipGeodesicsManager::find_geodesic_path_poly, py::arg("vert_list"), py::arg("maxIterations"), py::arg("maxRelativeLengthDecrease"))
-        .def("find_geodesic_loop", &EdgeFlipGeodesicsManager::find_geodesic_loop, py::arg("vert_list"), py::arg("maxIterations"), py::arg("maxRelativeLengthDecrease"));
-
-
+        .def("find_geodesic_path", &EdgeFlipGeodesicsManager::find_geodesic_path,
+             py::arg("source_vert"), py::arg("target_vert"), py::arg("maxIterations"), py::arg("maxRelativeLengthDecrease"))
+        .def("find_geodesic_path_poly", &EdgeFlipGeodesicsManager::find_geodesic_path_poly,
+             py::arg("vert_list"), py::arg("maxIterations"), py::arg("maxRelativeLengthDecrease"))
+        .def("find_geodesic_loop", &EdgeFlipGeodesicsManager::find_geodesic_loop,
+             py::arg("vert_list"), py::arg("maxIterations"), py::arg("maxRelativeLengthDecrease"))
+        .def("find_geodesic_path_with_route", &EdgeFlipGeodesicsManager::find_geodesic_path_with_route,
+             py::arg("vert_list"), py::arg("maxIterations"), py::arg("maxRelativeLengthDecrease"))
+        ;
   py::class_<GeodesicTracer>(m, "GeodesicTracer")
         .def(py::init<DenseMatrix<double>, DenseMatrix<int64_t>>())
         .def("trace_geodesic_from_vertex", &GeodesicTracer::trace_geodesic_from_vertex, py::arg("start_vert"), py::arg("direction_xyz"), py::arg("max_iters"))
