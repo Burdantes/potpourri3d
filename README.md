@@ -1,28 +1,25 @@
-# potpourri3d
+# Custom geodesic initialization (potpourri3d + geometry-central)
 
-A Python library of various algorithms and utilities for 3D triangle meshes, polygon meshes, and point clouds. Managed by [Nicholas Sharp](https://nmwsharp.com), with new tools added lazily as needed. Currently, mainly bindings to C++ tools from [geometry-central](http://geometry-central.net/).
+This repo contains an experimental modification that lets you initialize geodesic computation
+using a user-provided vertex route (instead of the default Dijkstra-based init).
 
-`pip install potpourri3d`
+## Quick start
 
-The blend includes:
-- Mesh and point cloud reading/writing to a few file formats
-- Use **heat methods** to compute unsigned and signed distances, parallel transport, logarithmic maps, and more
-- Computing geodesic polylines along surface via edge flips
-- More!
+From the directory containing `setup.sh`:
 
-## Installation
-
-Potpourri3d is on the pypi package index with precompiled binaries for most configuations. Get it like:
-
-`pip install potpourri3d`
-
-If none of the precompiled binaries match your system, `pip` will attempt to compile the library from scratch. This requires `cmake` and a workng C++ compiler toolchain.
-
-**Note**: Some bound functions invoke sparse linear solvers internally. The precompiled binaries use Eigen's solvers; using Suitesparse's solvers instead may significantly improve performance & robustness. To get them, locally compile the package on a machine with Suitesparse installed using the command below ([relevant docs](http://geometry-central.net/build/dependencies/#suitesparse)).
+```bash
+chmod +x setup.sh
+./setup.sh
 
 ```
-python -m pip install potpourri3d --no-binary potpourri3d
-```
+This will:
+	1.	Clone a fork/branch of potpourri3d
+	2.	Initialize submodules
+	3.	Check out a matching branch of geometry-central inside deps/geometry-central
+	4.	Create a Python venv at potpourri3d/.venv
+	5.	Install potpourri3d in editable mode
+	6.	Verify the new Python binding exists
+
 
 ## Documentation
 
