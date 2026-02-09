@@ -59,15 +59,24 @@ git submodule update --init --recursive
 # -----------------------------
 # Checkout geometry-central branch
 # -----------------------------
-if [[ ! -d "deps/geometry-central/.git" ]]; then
-  die "Expected geometry-central submodule at deps/geometry-central, but it wasn't found."
-fi
-
 log "Checking out geometry-central branch: $GEOCENTRAL_BRANCH"
 pushd deps/geometry-central >/dev/null
+
+# Try origin first (whatever the submodule remote is)
 git fetch --all --prune
-git checkout "$GEOCENTRAL_BRANCH"
-git pull --ff-only || warn "Could not fast-forward pull geometry-central; you may have local changes."
+
+if git show-ref --verify --quiet "refs/remotes/origin/$GEOCENTRAL_BRANCH"; then
+  git checkout "$GEOCENTRAL_BRANCH"
+  git pull --ff-only || warn "Could not fast-forward pull geometry-central; you may have local changes."
+else
+  warn "origin/$GEOCENTRAL_BRANCH not found. Trying fork remote..."
+  if ! git remote | grep -q '^fork$'; then
+    git remote add fork "https://github.com/Burdantes/geometry-central.git"
+  fi
+  git fetch fork --prune
+  git checkout -B "$GEOCENTRAL_BRANCH" "fork/$GEOCENTRAL_BRANCH"
+fi
+
 popd >/dev/null
 
 # -----------------------------
